@@ -1,5 +1,6 @@
 package org.demo.infraestructure.http;
 
+import org.demo.infraestructure.http.dto.MessageRequest;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,41 +16,33 @@ import java.util.function.Supplier;
 
 @ApplicationScoped
 public class ExternalApiService {
-    private static final Logger log = LoggerFactory.getLogger(ExternalApiService.class);
-    private static final int MAX_RETRIES = 10;
-    private static final Duration WAIT_DURATION = Duration.ofSeconds(1);
+  private static final Logger log = LoggerFactory.getLogger(ExternalApiService.class);
+  private static final int MAX_RETRIES = 10;
 
-    @Inject
-    @RestClient
-    ExternalApiClient apiClient;
+  @Inject @RestClient ExternalApiClient apiClient;
 
-    private final Retry retry;
+  public boolean callExternalApi(String message) {
+    int retryCount = 0;
+    while (retryCount < MAX_RETRIES) {
+      try {
+        Response response = apiClient.sendRequest(new MessageRequest(message));
 
-    public ExternalApiService() {
-        RetryConfig config = RetryConfig.custom()
-            .maxAttempts(MAX_RETRIES)
-            .waitDuration(WAIT_DURATION)
-            .retryOnResult(response -> response instanceof Response && ((Response) response).getStatus() == 503)
-            .build();
-        
-        this.retry = Retry.of("externalApiRetry", config);
-    }
-
-    public boolean callExternalApi(String message) {
-        try {
-            Supplier<Response> apiCall = () -> apiClient.sendRequest(message);
-            Response response = retry.executeSupplier(apiCall);
-            
-            if (response.getStatus() == 503) {
-                log.error("External API still unavailable after {} retries", MAX_RETRIES);
-                return false;
-            }
-            
-            return response.getStatus() >= 200 && response.getStatus() < 300;
-            
-        } catch (Exception e) {
-            log.error("Error calling external API", e);
-            return false;
+        if (response.getStatus() == 503) {
+          log.warn("Received 503 response, retry {}/{}", retryCount + 1, MAX_RETRIES);
+          retryCount++;
+          Thread.sleep(1000);
+          continue;
         }
+
+        return response.getStatus() >= 200 && response.getStatus() < 300;
+
+      } catch (Exception e) {
+        log.error("Error calling external API", e);
+        return false;
+      }
     }
+
+    log.error("External API unavailable (503) after {} retries", MAX_RETRIES);
+    return false;
+  }
 }

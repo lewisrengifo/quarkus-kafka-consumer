@@ -11,48 +11,46 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @ApplicationScoped
 public class MessageProcessor {
-    private static final Logger log = LoggerFactory.getLogger(MessageProcessor.class);
-    
-    private final AtomicBoolean isProcessing = new AtomicBoolean(true);
-    private final AtomicInteger processedCount = new AtomicInteger(0);
+  private static final Logger log = LoggerFactory.getLogger(MessageProcessor.class);
 
-    @Inject
-    ExternalApiService externalApiService;
+  private final AtomicBoolean isProcessing = new AtomicBoolean(true);
+  private final AtomicInteger processedCount = new AtomicInteger(0);
 
-    public boolean processMessage(String message) {
-        if (!isProcessing.get()) {
-            log.warn("Message processor is paused. Skipping message processing.");
-            return false;
-        }
+  @Inject ExternalApiService externalApiService;
 
-        log.info("Processing message: {}", message);
-        boolean result = externalApiService.callExternalApi(message);
-
-        if (result) {
-            processedCount.incrementAndGet();
-            log.info("Successfully processed message. Total processed: {}", processedCount.get());
-        } else {
-            log.error("Failed to process message after retries");
-        }
-
-        return result;
+  public ProcessingResult processMessage(String message) {
+    if (!isProcessing.get()) {
+      log.warn("Message processor is paused. Skipping message processing.");
+      return ProcessingResult.RETRY_LATER;
     }
 
-    public void pause() {
-        isProcessing.set(false);
-        log.info("Message processor paused");
+    log.info("Processing message: {}", message);
+    boolean result = externalApiService.callExternalApi(message);
+
+    if (result) {
+      processedCount.incrementAndGet();
+      log.info("Successfully processed message. Total processed: {}", processedCount.get());
+      return ProcessingResult.SUCCESS;
     }
 
-    public void resume() {
-        isProcessing.set(true);
-        log.info("Message processor resumed");
-    }
+    return ProcessingResult.RETRY_LATER;
+  }
 
-    public boolean isProcessing() {
-        return isProcessing.get();
-    }
+  public void pause() {
+    isProcessing.set(false);
+    log.info("Message processor paused");
+  }
 
-    public int getProcessedCount() {
-        return processedCount.get();
-    }
+  public void resume() {
+    isProcessing.set(true);
+    log.info("Message processor resumed");
+  }
+
+  public boolean isProcessing() {
+    return isProcessing.get();
+  }
+
+  public int getProcessedCount() {
+    return processedCount.get();
+  }
 }

@@ -7,9 +7,11 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.common.TopicPartition;
 import org.demo.application.MessageProcessor;
+import org.demo.application.ProcessingResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,7 +25,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class KafkaConsumerService {
     private static final Logger log = LoggerFactory.getLogger(KafkaConsumerService.class);
     private static final Duration POLL_TIMEOUT = Duration.ofMillis(100);
-    private static final Duration RESUME_DELAY = Duration.ofSeconds(30);
 
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final AtomicBoolean paused = new AtomicBoolean(false);
@@ -59,14 +60,21 @@ public class KafkaConsumerService {
             while (running.get()) {
                 if (!paused.get()) {
                     ConsumerRecords<String, String> records = consumer.poll(POLL_TIMEOUT);
-                    records.forEach(record -> {
-                        boolean success = messageProcessor.processMessage(record.value());
-                        if (success) {
-                            consumer.commitSync();
-                        } else {
-                            pauseConsumer();
+                    for (ConsumerRecord<String, String> record : records) {
+                        ProcessingResult result = messageProcessor.processMessage(record.value());
+                        switch (result) {
+                            case SUCCESS:
+                                consumer.commitSync();
+                                break;
+                            case RETRY_LATER:
+                                pauseConsumer();
+                                return;
+                            case FAILURE:
+                                log.error("Failed to process message: {}", record.value());
+                                pauseConsumer();
+                                return;
                         }
-                    });
+                    }
                 }
             }
         } catch (Exception e) {

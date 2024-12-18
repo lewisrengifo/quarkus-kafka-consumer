@@ -1,6 +1,7 @@
 package org.demo.infraestructure.http;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import org.demo.infraestructure.http.dto.MessageRequest;
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 
 import jakarta.ws.rs.Consumes;
@@ -18,5 +19,5 @@ public interface ExternalApiClient {
     @Path("/api/external")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    Response sendRequest(String message);
+    Response sendRequest(MessageRequest messageRequest);
 }
