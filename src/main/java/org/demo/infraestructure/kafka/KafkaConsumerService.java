@@ -29,9 +29,13 @@ public class KafkaConsumerService {
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final AtomicBoolean paused = new AtomicBoolean(false);
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private final AtomicBoolean needsReopening = new AtomicBoolean(false);
 
     @Inject
     Consumer<String, String> consumer;
+
+    @Inject
+    KafkaConfig kafkaConfig;
 
     @Inject
     MessageProcessor messageProcessor;
@@ -48,17 +52,19 @@ public class KafkaConsumerService {
     }
 
     @Scheduled(every = "100s")
-    void checkAndResumeConsumer() {
-        if (paused.get()) {
-            log.info("Attempting to resume consumer after pause period");
-            resumeConsumer();
+    void checkAndReopenConsumer() {
+        if (needsReopening.get()) {
+            log.info("Attempting to reopen consumer");
+            reopenConsumer();
+            restartConsumerThread();
+            needsReopening.set(false);
         }
     }
 
     private void consumeMessages() {
         try {
             while (running.get()) {
-                if (!paused.get()) {
+                if (consumer != null) {
                     ConsumerRecords<String, String> records = consumer.poll(POLL_TIMEOUT);
                     for (ConsumerRecord<String, String> record : records) {
                         ProcessingResult result = messageProcessor.processMessage(record.value());
@@ -67,42 +73,45 @@ public class KafkaConsumerService {
                                 consumer.commitSync();
                                 break;
                             case RETRY_LATER:
-                                pauseConsumer();
+                                closeConsumer();
+                                needsReopening.set(true);
                                 return;
                             case FAILURE:
                                 log.error("Failed to process message: {}", record.value());
-                                pauseConsumer();
-                                return;
+
                         }
                     }
                 }
             }
         } catch (Exception e) {
             log.error("Error in consumer loop", e);
-        } finally {
-            consumer.close();
+            needsReopening.set(true);
         }
     }
 
-    private void pauseConsumer() {
-        if (!paused.get()) {
-            Set<TopicPartition> assignments = consumer.assignment();
-            consumer.pause(assignments);
-            paused.set(true);
-            log.info("Consumer paused due to processing failures");
+    private void closeConsumer() {
+        if (consumer != null) {
+            try {
+                consumer.close();
+                consumer = null;
+                log.info("Consumer closed successfully");
+            } catch (Exception e) {
+                log.error("Error closing consumer", e);
+            }
         }
     }
 
-    private void resumeConsumer() {
-        if (paused.get()) {
-            Set<TopicPartition> assignments = consumer.assignment();
-            consumer.resume(assignments);
-            paused.set(false);
-            log.info("Consumer resumed");
+    private void reopenConsumer() {
+        try {
+            consumer = kafkaConfig.kafkaConsumer();
+            log.info("Consumer reopened successfully");
+        } catch (Exception e) {
+            log.error("Error reopening consumer", e);
+            consumer = null;
         }
     }
-
-    public boolean isPaused() {
-        return paused.get();
+    private void restartConsumerThread() {
+        executorService.submit(this::consumeMessages);
+        log.info("Consumer thread restarted");
     }
 }
