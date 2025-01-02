@@ -21,11 +21,11 @@ public class ExternalApiService {
     while (retryCount < MAX_RETRIES) {
       try {
         Response response = apiClient.sendRequest(new MessageRequest(message));
+        Thread.sleep(200);
 
         if (response.getStatus() == 503) {
           log.warn("Received 503 response, retry {}/{}", retryCount + 1, MAX_RETRIES);
           retryCount++;
-          Thread.sleep(1000);
           continue;
         }
 

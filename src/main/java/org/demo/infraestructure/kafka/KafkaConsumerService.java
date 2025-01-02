@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -51,7 +52,7 @@ public class KafkaConsumerService {
         executorService.shutdown();
     }
 
-    @Scheduled(every = "100s")
+    @Scheduled(every = "60s")
     void checkAndReopenConsumer() {
         if (needsReopening.get()) {
             log.info("Attempting to reopen consumer");
@@ -65,9 +66,14 @@ public class KafkaConsumerService {
         try {
             while (running.get()) {
                 if (consumer != null) {
-                    ConsumerRecords<String, String> records = consumer.poll(POLL_TIMEOUT);
+
+                    ConsumerRecords<String, String> records = consumer.poll(POLL_TIMEOUT);;
                     for (ConsumerRecord<String, String> record : records) {
+                        long startTime = System.currentTimeMillis();
                         ProcessingResult result = messageProcessor.processMessage(record.value());
+                        long endTime = System.currentTimeMillis();
+                        long duration = endTime - startTime;
+                        log.info("The process took: {}", duration);
                         switch (result) {
                             case SUCCESS:
                                 consumer.commitSync();
